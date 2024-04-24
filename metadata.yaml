@@ -1,0 +1,7 @@
+type: downsample
+
+status:
+  class: processor
+  stability:
+    development: [metrics]
+  distributions: []
