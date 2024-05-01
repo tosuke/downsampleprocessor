@@ -4,7 +4,6 @@ package downsampleprocessor
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/tosuke/downsampleprocessor/internal/metadata"
 	"go.opentelemetry.io/collector/component"
@@ -13,9 +12,12 @@ import (
 )
 
 func NewFactory() processor.Factory {
-	return processor.NewFactory(metadata.Type, createDefaultConfig, nil)
+	return processor.NewFactory(
+		metadata.Type,
+		createDefaultConfig,
+		processor.WithMetrics(createMetrics, metadata.MetricsStability))
 }
 
-func createMetricProcessor(_ context.Context, _ processor.CreateSettings, _ component.Config, _ consumer.Metrics) (processor.Metrics, error) {
-	return nil, fmt.Errorf("unimplemented")
+func createMetrics(_ context.Context, settings processor.CreateSettings, cfg component.Config, next consumer.Metrics) (processor.Metrics, error) {
+	return newDownsampleProcessor(settings, cfg.(*Config), next), nil
 }

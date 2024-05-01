@@ -1,8 +1,15 @@
 package downsampleprocessor
 
-import "go.opentelemetry.io/collector/component"
+import (
+	"time"
 
-type Config struct{}
+	"go.opentelemetry.io/collector/component"
+)
+
+type Config struct {
+	Duration       time.Duration `mapstructure:"duration"`
+	MaxCardinality int           `mapstructure:"max_cardinality"`
+}
 
 var _ component.ConfigValidator = (*Config)(nil)
 
