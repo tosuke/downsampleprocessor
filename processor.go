@@ -6,115 +6,51 @@ import (
 	"time"
 
 	"go.opentelemetry.io/collector/component"
-	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/pdata/pmetric"
-	"go.opentelemetry.io/collector/processor"
-	"go.uber.org/zap"
 )
 
 type downsampleProcessor struct {
-	logger *zap.Logger
+	m sync.Mutex
 
-	duration       time.Duration
+	shutdownFn context.CancelFunc
+
+	period         time.Duration
 	maxCardinality int
-
-	ctx       context.Context
-	cancelCtx context.CancelCauseFunc
-	shutdownC chan struct{}
-
-	wg   sync.WaitGroup
-	item chan pmetric.Metrics
-	next consumer.Metrics
 }
 
-type worker struct {
-	proc *downsampleProcessor
-}
-
-func newDownsampleProcessor(settings processor.CreateSettings, cfg *Config, next consumer.Metrics) *downsampleProcessor {
+func newDownsampleProcessor(c *Config) *downsampleProcessor {
 	return &downsampleProcessor{
-		logger: settings.Logger,
-
-		duration:       cfg.Duration,
-		maxCardinality: cfg.MaxCardinality,
-
-		cancelCtx: func(error) {},
-		shutdownC: make(chan struct{}, 1),
-
-		wg:   sync.WaitGroup{},
-		item: make(chan pmetric.Metrics, 1),
-		next: next,
+		period:         c.Period,
+		maxCardinality: c.MaxCardinality,
 	}
 }
 
-func newWorker(proc *downsampleProcessor) *worker {
-	return &worker{proc: proc}
-}
+func (dp *downsampleProcessor) start(_ context.Context, _ component.Host) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	dp.shutdownFn = cancel
 
-// Capabilities implements processor.Metrics.
-func (dp *downsampleProcessor) Capabilities() consumer.Capabilities {
-	return consumer.Capabilities{MutatesData: true}
-}
-
-// Start implements processor.Metrics.
-func (dp *downsampleProcessor) Start(ctx context.Context, host component.Host) error {
-	pctx := context.WithoutCancel(ctx)
-	pctx, cancel := context.WithCancelCause(pctx)
-
-	dp.cancelCtx = cancel
-
-    w := newWorker(dp)
-    w.start()
-
-	return nil
-}
-
-// Shutdown implements processor.Metrics.
-func (dp *downsampleProcessor) Shutdown(ctx context.Context) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	go func() {
-		<-ctx.Done()
-		dp.cancelCtx(context.Cause(ctx))
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			}
+		}
 	}()
 
-	close(dp.shutdownC)
-
-	dp.wg.Wait()
 	return nil
 }
 
-// ConsumeMetrics implements processor.Metrics.
-func (dp *downsampleProcessor) ConsumeMetrics(ctx context.Context, md pmetric.Metrics) error {
-	dp.item <- md
+func (dp *downsampleProcessor) shutdown(_ context.Context) error {
+	if dp.shutdownFn != nil {
+		dp.shutdownFn()
+	}
 	return nil
 }
 
-var _ processor.Metrics = (*downsampleProcessor)(nil)
+func (dp *downsampleProcessor) processMetrics(_ context.Context, md pmetric.Metrics) (pmetric.Metrics, error) {
+	dp.m.Lock()
+	defer dp.m.Unlock()
 
-func (w *worker) start() {
-    w.proc.wg.Add(1)
-    go func() {
-        defer w.proc.wg.Done()
-        w.startLoop()
-    }()
-}
-
-func (w *worker) startLoop() {
-    w.proc.logger.Debug("worker started")
-	for {
-		select {
-		case <-w.proc.shutdownC:
-			return
-		case md := <-w.proc.item:
-			w.processMetrics(md)
-		}
-	}
-}
-
-func (w *worker) processMetrics(md pmetric.Metrics) {
-	ctx := w.proc.ctx
-	if err := w.proc.next.ConsumeMetrics(ctx, md); err != nil {
-		w.proc.logger.Warn("failed to send", zap.Error(err))
-	}
+	return md, nil
 }

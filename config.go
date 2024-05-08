@@ -7,7 +7,7 @@ import (
 )
 
 type Config struct {
-	Duration       time.Duration `mapstructure:"duration"`
+	Period         time.Duration `mapstructure:"period"`
 	MaxCardinality int           `mapstructure:"max_cardinality"`
 }
 
