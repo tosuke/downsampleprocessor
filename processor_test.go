@@ -28,7 +28,11 @@ func TestProcessor_SingleMetric(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	sink := new(consumertest.MetricsSink)
-	mproc, err := setupProcessor(t, ctx, sink, nil)
+	mproc, err := setupProcessor(t, ctx, sink, func(c *downsampleprocessor.Config) *downsampleprocessor.Config {
+		c.MaxCardinality = 100
+		c.Period = 100 * time.Millisecond
+		return c
+	})
 	if err != nil {
 		t.Errorf("failed to setup processor: %v", err)
 		return
@@ -52,7 +56,7 @@ func TestProcessor_SingleMetric(t *testing.T) {
 	dp2 := dps.AppendEmpty()
 	dp2.Attributes().PutStr(attrKey, "A1")
 	dp2.SetTimestamp(pcommon.NewTimestampFromTime(now.Add(-10 * time.Millisecond)))
-    dp2.SetIntValue(2)
+	dp2.SetIntValue(2)
 
 	if err := mproc.ConsumeMetrics(ctx, md); err != nil {
 		t.Errorf("failed to process metrics: %v", err)
@@ -62,7 +66,7 @@ func TestProcessor_SingleMetric(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	assertHasDatapoint(t, sink.AllMetrics(), "R1", "S1", metricName, "A1", 1)
-    assertHasDatapoint(t, sink.AllMetrics(), "R1", "S1", metricName, "A1", 2)
+	assertHasNotDatapoint(t, sink.AllMetrics(), "R1", "S1", metricName, "A1", 2)
 }
 
 func setupProcessor(t testing.TB, ctx context.Context, next consumer.Metrics, configFn func(*downsampleprocessor.Config) *downsampleprocessor.Config) (processor.Metrics, error) {
