@@ -76,6 +76,27 @@ func (dsp *downsampleProcessor) processMetrics(_ context.Context, md pmetric.Met
 						return dsp.tracker.shouldRemove(si, dp.Timestamp().AsTime())
 					})
 					return dps.Len() == 0
+				case pmetric.MetricTypeSum:
+					dps := m.Sum().DataPoints()
+					dps.RemoveIf(func(dp pmetric.NumberDataPoint) bool {
+						si := identity.OfStream(mi, dp)
+						return dsp.tracker.shouldRemove(si, dp.Timestamp().AsTime())
+					})
+					return dps.Len() == 0
+				case pmetric.MetricTypeHistogram:
+					dps := m.Histogram().DataPoints()
+					dps.RemoveIf(func(hdp pmetric.HistogramDataPoint) bool {
+						si := identity.OfStream(mi, hdp)
+						return dsp.tracker.shouldRemove(si, hdp.Timestamp().AsTime())
+					})
+					return dps.Len() == 0
+				case pmetric.MetricTypeExponentialHistogram:
+					dps := m.ExponentialHistogram().DataPoints()
+					dps.RemoveIf(func(ehdp pmetric.ExponentialHistogramDataPoint) bool {
+						si := identity.OfStream(mi, ehdp)
+						return dsp.tracker.shouldRemove(si, ehdp.Timestamp().AsTime())
+					})
+					return dps.Len() == 0
 				default:
 					return false
 				}
