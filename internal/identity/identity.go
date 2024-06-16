@@ -1,7 +1,6 @@
 package identity
 
 import (
-	"fmt"
 	"hash"
 
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/pdatautil"
@@ -78,7 +77,6 @@ func OfMetric(s Scope, m pmetric.Metric) Metric {
 	}
 
 	switch m.Type() {
-	case pmetric.MetricTypeGauge:
 	case pmetric.MetricTypeSum:
 		sum := m.Sum()
 		id.monotonic = sum.IsMonotonic()
@@ -91,21 +89,35 @@ func OfMetric(s Scope, m pmetric.Metric) Metric {
 		exp := m.ExponentialHistogram()
 		id.monotonic = true
 		id.temporality = exp.AggregationTemporality()
-	case pmetric.MetricTypeSummary:
-	default:
-		panic(fmt.Errorf("unsupported metric type: %v", m.Type()))
 	}
 
 	return id
 }
 
 func (ma Metric) Equals(mb Metric) bool {
-	return ma.scope.Equals(mb.scope) &&
-		ma.name == mb.name &&
-		ma.unit == mb.unit &&
-		ma.typ == mb.typ &&
-		ma.monotonic == mb.monotonic &&
-		ma.temporality == mb.temporality
+	if !ma.scope.Equals(mb.scope) ||
+		ma.name != mb.name ||
+		ma.unit != mb.unit ||
+		ma.typ != mb.typ {
+		return false
+	}
+
+	switch ma.typ {
+	case pmetric.MetricTypeEmpty:
+		return true
+	case pmetric.MetricTypeGauge:
+		return true
+	case pmetric.MetricTypeSum:
+		return ma.monotonic == mb.monotonic && ma.temporality == mb.temporality
+	case pmetric.MetricTypeHistogram:
+		return ma.temporality == mb.temporality
+	case pmetric.MetricTypeExponentialHistogram:
+		return ma.temporality == mb.temporality
+	case pmetric.MetricTypeSummary:
+		return true
+	default:
+		return false
+	}
 }
 
 func (m Metric) WriteHash(h hash.Hash) {
