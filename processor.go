@@ -7,6 +7,7 @@ import (
 
 	"github.com/tosuke/downsampleprocessor/internal/identity"
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 )
 
@@ -70,33 +71,13 @@ func (dsp *downsampleProcessor) processMetrics(_ context.Context, md pmetric.Met
 				mi := identity.OfMetric(isi, m)
 				switch m.Type() {
 				case pmetric.MetricTypeGauge:
-					dps := m.Gauge().DataPoints()
-					dps.RemoveIf(func(dp pmetric.NumberDataPoint) bool {
-						si := identity.OfStream(mi, dp)
-						return dsp.tracker.shouldRemove(si, dp.Timestamp().AsTime())
-					})
-					return dps.Len() == 0
+					return handleDatapointSlice(dsp.tracker, mi, m.Gauge().DataPoints())
 				case pmetric.MetricTypeSum:
-					dps := m.Sum().DataPoints()
-					dps.RemoveIf(func(dp pmetric.NumberDataPoint) bool {
-						si := identity.OfStream(mi, dp)
-						return dsp.tracker.shouldRemove(si, dp.Timestamp().AsTime())
-					})
-					return dps.Len() == 0
+					return handleDatapointSlice(dsp.tracker, mi, m.Sum().DataPoints())
 				case pmetric.MetricTypeHistogram:
-					dps := m.Histogram().DataPoints()
-					dps.RemoveIf(func(hdp pmetric.HistogramDataPoint) bool {
-						si := identity.OfStream(mi, hdp)
-						return dsp.tracker.shouldRemove(si, hdp.Timestamp().AsTime())
-					})
-					return dps.Len() == 0
+					return handleDatapointSlice(dsp.tracker, mi, m.Histogram().DataPoints())
 				case pmetric.MetricTypeExponentialHistogram:
-					dps := m.ExponentialHistogram().DataPoints()
-					dps.RemoveIf(func(ehdp pmetric.ExponentialHistogramDataPoint) bool {
-						si := identity.OfStream(mi, ehdp)
-						return dsp.tracker.shouldRemove(si, ehdp.Timestamp().AsTime())
-					})
-					return dps.Len() == 0
+					return handleDatapointSlice(dsp.tracker, mi, m.ExponentialHistogram().DataPoints())
 				default:
 					return false
 				}
@@ -107,6 +88,31 @@ func (dsp *downsampleProcessor) processMetrics(_ context.Context, md pmetric.Met
 	})
 
 	return md, nil
+}
+
+type datapoint interface {
+	Attributes() pcommon.Map
+	Timestamp() pcommon.Timestamp
+}
+type datapointSlice[DP datapoint] interface {
+	Len() int
+	Sort(func(a, b DP) bool)
+	RemoveIf(func(DP) bool)
+}
+
+func cmpDatapoint[DP datapoint](a, b DP) bool {
+	return a.Timestamp().AsTime().Before(b.Timestamp().AsTime())
+}
+
+func handleDatapointSlice[DP datapoint, DPS datapointSlice[DP]](tracker *tracker, mi identity.Metric, dps DPS) bool {
+	dps.Sort(func(a, b DP) bool {
+		return a.Timestamp().AsTime().Before(b.Timestamp().AsTime())
+	})
+	dps.RemoveIf(func(dp DP) bool {
+		si := identity.OfStream(mi, dp)
+		return tracker.shouldRemove(si, dp.Timestamp().AsTime())
+	})
+	return dps.Len() == 0
 }
 
 func (dp *downsampleProcessor) sweep() {
